@@ -53,7 +53,7 @@
         .animate-fadeInScale {
             animation: fadeInScale 0.3s ease-out forwards;
         }
-        /* Estilo para el spinner de carga (aunque ya no se use para la generación, se mantiene por si acaso) */
+        /* Estilo para el spinner de carga */
         .spinner {
             border: 4px solid rgba(255, 255, 255, 0.3);
             border-top: 4px solid #fff;
@@ -89,17 +89,16 @@
         </div>
     </div>
 
-    <!-- Username Input Modal -->
+    <!-- Username Assignment Modal -->
     <div id="usernameModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-[10001] hidden">
         <div class="bg-white p-8 rounded-xl shadow-2xl max-w-sm w-full text-center">
-            <h2 class="text-2xl font-bold text-gray-800 mb-4">¡Bienvenido!</h2>
-            <p class="text-gray-600 mb-6">Por favor, elige un nombre de usuario para identificarte en la aplicación:</p>
-            <input type="text" id="usernameInput"
-                   class="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 mb-6"
-                   placeholder="Tu nombre de usuario (ej: Juan, María)">
-            <button id="saveUsernameBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-full shadow-lg
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">¡Tu Código de Usuario!</h2>
+            <p class="text-gray-600 mb-6">Se te ha asignado un código único para identificarte en la aplicación:</p>
+            <p id="assignedUsernameDisplay" class="text-blue-600 text-4xl md:text-5xl font-extrabold mb-6 break-all"></p>
+            <p class="text-gray-600 mb-6">Compártelo con tus compañeros para que puedan enviarte alarmas.</p>
+            <button id="dismissUsernameModalBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-full shadow-lg
                        transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-indigo-300">
-                Guardar Nombre de Usuario
+                Entendido
             </button>
             <p class="text-xs text-gray-500 mt-4 break-all" id="modalUserIdDisplay">Tu ID de usuario (solo para referencia): Cargando...</p>
         </div>
@@ -112,16 +111,14 @@
             Escribe el mensaje que quieres enviar a tus compañeros.
         </p>
 
-        <!-- Display User ID and Username -->
+        <!-- Display User ID and Username (now Code) -->
         <p id="currentUsernameDisplay" class="text-gray-700 text-sm font-semibold mb-2 break-all text-center">
-            Tu Nombre: Cargando...
+            Tu Código: Cargando...
         </p>
         <p id="currentUserIdDisplay" class="text-gray-500 text-xs mb-6 break-all text-center">
-            Tu ID: Cargando... (comparte tu nombre, no este ID)
+            Tu ID: Cargando... (comparte tu código, no este ID)
         </p>
-        <button id="changeUsernameBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-semibold py-1 px-3 rounded-full mb-6">
-            Cambiar Nombre
-        </button>
+        <!-- Removed "Cambiar Nombre" button -->
 
 
         <!-- Campo de texto para el mensaje personalizado -->
@@ -134,14 +131,14 @@
                       rows="3" placeholder="¡Necesito tu atención urgente!"></textarea>
         </div>
 
-        <!-- Campo para el Nombre del compañero -->
+        <!-- Campo para el Código del compañero -->
         <div class="w-full mb-6">
             <label for="targetUsernameInput" class="block text-gray-700 text-sm font-bold mb-2">
-                Nombre del Compañero (a quién enviar la alarma):
+                Código del Compañero (a quién enviar la alarma):
             </label>
             <input type="text" id="targetUsernameInput"
                    class="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500"
-                   placeholder="Escribe el nombre de tu compañero aquí">
+                   placeholder="Escribe el código de tu compañero aquí (ej: a1B2c3)">
         </div>
 
         <!-- Botón para activar la alarma con el mensaje actual -->
@@ -175,14 +172,16 @@
         const dynamicMessage = document.getElementById('dynamicMessage');
         const customMessageInput = document.getElementById('customMessageInput');
         const targetUsernameInput = document.getElementById('targetUsernameInput');
-        const currentUsernameDisplay = document.getElementById('currentUsernameDisplay');
+        const currentUsernameDisplay = document.getElementById('currentUsernameDisplay'); // Now displays code
         const currentUserIdDisplay = document.getElementById('currentUserIdDisplay');
 
         const usernameModal = document.getElementById('usernameModal');
-        const usernameInput = document.getElementById('usernameInput');
-        const saveUsernameBtn = document.getElementById('saveUsernameBtn');
+        // const usernameInput = document.getElementById('usernameInput'); // Removed
+        // const saveUsernameBtn = document.getElementById('saveUsernameBtn'); // Removed
+        const dismissUsernameModalBtn = document.getElementById('dismissUsernameModalBtn'); // New
+        const assignedUsernameDisplay = document.getElementById('assignedUsernameDisplay'); // New
         const modalUserIdDisplay = document.getElementById('modalUserIdDisplay');
-        const changeUsernameBtn = document.getElementById('changeUsernameBtn');
+        // const changeUsernameBtn = document.getElementById('changeUsernameBtn'); // Removed
 
 
         // Global Firebase variables (accesibles después de la inicialización)
@@ -190,7 +189,7 @@
         let db;
         let auth;
         let currentUserId = null;
-        let currentUsername = null;
+        let currentUsername = null; // Now holds the short code
         let currentAlarmDocId = null;
 
         let timeoutId;
@@ -243,33 +242,9 @@
             };
         }
 
-        // Función para solicitar el modo de pantalla completa (Mantenida pero ya no usada automáticamente)
-        function requestFullscreen(element) {
-            // Esta función se mantiene, pero no se llama automáticamente para evitar errores de permisos.
-            // Solo se activará si hay una interacción directa del usuario.
-            if (element.requestFullscreen) {
-                element.requestFullscreen();
-            } else if (element.mozRequestFullScreen) { /* Firefox */
-                element.mozRequestFullScreen();
-            } else if (element.webkitRequestFullscreen) { /* Chrome, Safari and Opera */
-                element.webkitRequestFullscreen();
-            } else if (element.msRequestFullscreen) { /* IE/Edge */
-                element.msRequestFullscreen();
-            }
-        }
+        // REMOVIDO: Función para solicitar el modo de pantalla completa (requestFullscreen)
+        // REMOVIDO: Función para salir del modo de pantalla completa (exitFullscreen)
 
-        // Función para salir del modo de pantalla completa
-        function exitFullscreen() {
-            if (document.fullscreenElement) {
-                document.exitFullscreen();
-            } else if (document.mozCancelFullScreen) { /* Firefox */
-                document.mozCancelFullScreen();
-            } else if (document.webkitExitFullscreen) { /* Chrome, Safari and Opera */
-                document.webkitExitFullscreen();
-            } else if (document.msExitFullscreen) { /* IE/Edge */
-                document.msExitFullscreen();
-            }
-        }
 
         // Función para mostrar la notificación
         function showNotification(message) {
@@ -285,7 +260,6 @@
             }
 
             clearTimeout(timeoutId);
-            // La duración de la alarma se ha cambiado a 10 segundos (10000 ms)
             timeoutId = setTimeout(() => {
                 hideNotification();
                 if (currentAlarmDocId) {
@@ -296,43 +270,31 @@
 
         // Función para ocultar la notificación
         function hideNotification() {
-            // Esta función se llama al hacer clic, al presionar ESC o al finalizar el temporizador
-            if (document.fullscreenElement === notificationOverlay ||
-                document.mozFullScreenElement === notificationOverlay ||
-                document.webkitFullscreenElement === notificationOverlay ||
-                document.msFullscreenElement === notificationOverlay) {
-                exitFullscreen(); // Asegura salir de fullscreen si estaba activo
-            }
-
             notificationOverlay.classList.add('hidden');
             notificationOverlay.classList.remove('animate-flashing');
-            clearTimeout(timeoutId); // Limpiar el temporizador para evitar que se oculte dos veces
+            clearTimeout(timeoutId);
 
-            // Desactivar la alarma en Firestore si aún no se ha hecho
             if (currentAlarmDocId) {
                 dismissAlarmInFirestore(currentAlarmDocId);
                 currentAlarmDocId = null;
             }
         }
 
-        // --- Funciones para nombres de usuario ---
+        // --- Funciones para nombres de usuario (ahora códigos) ---
 
-        // Muestra el modal para pedir el nombre de usuario
-        function promptForUsername() {
-            usernameModal.classList.remove('hidden');
-            if (currentUserId) {
-                modalUserIdDisplay.textContent = `Tu ID de usuario (solo para referencia): ${currentUserId}`;
+        // Función para generar un código corto aleatorio
+        function generateShortCode(length = 6) {
+            let result = '';
+            const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            const charactersLength = characters.length;
+            for (let i = 0; i < length; i++) {
+                result += characters.charAt(Math.floor(Math.random() * charactersLength));
             }
+            return result;
         }
 
-        // Guarda el nombre de usuario en Firestore
-        async function saveUsername() {
-            const username = usernameInput.value.trim();
-            if (!username) {
-                showMessageBox("Por favor, introduce un nombre de usuario.");
-                return;
-            }
-
+        // Modificada: Ahora promptForUsername asigna y muestra el código
+        async function promptForUsername() {
             if (!db || !currentUserId) {
                 showMessageBox("Error: La aplicación no está lista. Por favor, intenta de nuevo.");
                 return;
@@ -341,51 +303,58 @@
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
             const userProfileRef = window.firebase.firestore.doc(db, `artifacts/${appId}/public/data/userProfiles`, currentUserId);
 
-            try {
-                // Verificar si el nombre de usuario ya existe
-                const usernameCheckQuery = window.firebase.firestore.query(
-                    window.firebase.firestore.collection(db, `artifacts/${appId}/public/data/userProfiles`),
-                    window.firebase.firestore.where("username", "==", username)
-                );
-                const querySnapshot = await window.firebase.firestore.getDocs(usernameCheckQuery); // CORREGIDO: Usar 'usernameCheckQuery' aquí
+            if (!currentUsername) { // Solo genera si no hay un código asignado aún
+                let uniqueUsernameFound = false;
+                let generatedUsername;
 
-                let usernameExists = false;
-                querySnapshot.forEach(doc => {
-                    if (doc.id !== currentUserId) {
-                        usernameExists = true;
+                while (!uniqueUsernameFound) {
+                    generatedUsername = generateShortCode();
+                    const usernameCheckQuery = window.firebase.firestore.query(
+                        window.firebase.firestore.collection(db, `artifacts/${appId}/public/data/userProfiles`),
+                        window.firebase.firestore.where("username", "==", generatedUsername)
+                    );
+                    const querySnapshot = await window.firebase.firestore.getDocs(usernameCheckQuery);
+                    if (querySnapshot.empty) {
+                        uniqueUsernameFound = true;
                     }
-                });
+                }
 
-                if (usernameExists) {
-                    showMessageBox("Este nombre de usuario ya está en uso. Por favor, elige otro.");
+                try {
+                    await window.firebase.firestore.setDoc(userProfileRef, {
+                        username: generatedUsername,
+                        userId: currentUserId,
+                        createdAt: new Date()
+                    }, { merge: true });
+
+                    currentUsername = generatedUsername;
+                    currentUsernameDisplay.textContent = `Tu Código: ${currentUsername}`; // Actualiza la pantalla principal
+                    assignedUsernameDisplay.textContent = currentUsername; // Actualiza la pantalla del modal
+                    console.log("Código de usuario asignado y guardado:", currentUsername);
+
+                    if (!audioContextStarted) {
+                        Tone.start().then(() => {
+                            audioContextStarted = true;
+                            console.log("AudioContext started (from promptForUsername initial assignment)");
+                        }).catch(e => console.error("Error starting audio context:", e));
+                    }
+
+                } catch (error) {
+                    console.error("Error al asignar el código de usuario:", error);
+                    showMessageBox("Error al asignar tu código de usuario. Inténtalo de nuevo.");
                     return;
                 }
+            } else {
+                // Si ya tiene un código, solo lo muestra en el modal
+                assignedUsernameDisplay.textContent = currentUsername;
+            }
 
-                await window.firebase.firestore.setDoc(userProfileRef, {
-                    username: username,
-                    userId: currentUserId,
-                    createdAt: new Date()
-                }, { merge: true });
-
-                currentUsername = username;
-                currentUsernameDisplay.textContent = `Tu Nombre: ${currentUsername}`;
-                usernameModal.classList.add('hidden');
-                showMessageBox(`Tu nombre de usuario "${username}" ha sido guardado.`);
-                console.log("Nombre de usuario guardado:", username);
-
-                // Intentar iniciar el contexto de audio después de la interacción del usuario
-                if (!audioContextStarted) {
-                    Tone.start().then(() => {
-                        audioContextStarted = true;
-                        console.log("AudioContext started (from saveUsernameBtn)");
-                    }).catch(e => console.error("Error starting audio context:", e));
-                }
-
-            } catch (error) {
-                console.error("Error al guardar el nombre de usuario:", error);
-                showMessageBox("Error al guardar el nombre de usuario. Inténtalo de nuevo.");
+            // Muestra el modal del código asignado
+            usernameModal.classList.remove('hidden');
+            if (currentUserId) {
+                modalUserIdDisplay.textContent = `Tu ID de usuario (solo para referencia): ${currentUserId}`;
             }
         }
+
 
         // Inicialización de Firebase y autenticación
         const initializeFirebase = async () => {
@@ -414,11 +383,11 @@
 
                         if (docSnap.exists() && docSnap.data().username) {
                             currentUsername = docSnap.data().username;
-                            currentUsernameDisplay.textContent = `Tu Nombre: ${currentUsername}`;
-                            console.log("Autenticado como:", currentUserId, "Nombre:", currentUsername);
+                            currentUsernameDisplay.textContent = `Tu Código: ${currentUsername}`;
+                            console.log("Autenticado con código:", currentUsername);
                         } else {
-                            currentUsernameDisplay.textContent = `Tu Nombre: (No definido)`;
-                            promptForUsername();
+                            currentUsernameDisplay.textContent = `Tu Código: (Asignando...)`;
+                            await promptForUsername(); // Asigna y muestra el código si no existe
                         }
                         setupAlarmListener(currentUserId, appId);
                     } else {
@@ -472,7 +441,7 @@
         // Función para enviar una alarma a través de Firestore
         async function sendAlarmByUsername(targetUsername, message) {
             if (!db || !currentUserId || !currentUsername) {
-                showMessageBox("La aplicación no está lista. Por favor, espera a que se inicialice y configura tu nombre de usuario.");
+                showMessageBox("La aplicación no está lista. Por favor, espera a que se inicialice y configura tu código de usuario.");
                 return;
             }
 
@@ -493,7 +462,7 @@
                 }
 
                 if (!targetUserId) {
-                    showMessageBox(`No se encontró ningún usuario con el nombre "${targetUsername}". Asegúrate de que esté bien escrito y de que el usuario lo haya configurado.`);
+                    showMessageBox(`No se encontró ningún usuario con el código "${targetUsername}". Asegúrate de que esté bien escrito.`);
                     return;
                 }
 
@@ -529,14 +498,17 @@
             }
         }
 
-        // Event listener para el botón para guardar el nombre de usuario
-        saveUsernameBtn.addEventListener('click', saveUsername);
+        // Removed event listener for saveUsernameBtn (button removed)
+        dismissUsernameModalBtn.addEventListener('click', () => {
+            usernameModal.classList.add('hidden');
+        });
+
 
         // Event listener para el botón para activar la alarma
         activateAlarmBtn.addEventListener('click', () => {
             const targetUsername = targetUsernameInput.value.trim();
             if (!targetUsername) {
-                showMessageBox("Por favor, introduce el nombre del compañero al que quieres enviar la alarma.");
+                showMessageBox("Por favor, introduce el código del compañero al que quieres enviar la alarma.");
                 return;
             }
 
@@ -551,22 +523,20 @@
                 Tone.start().then(() => {
                     audioContextStarted = true;
                     console.log("AudioContext started (from activateAlarmBtn)");
-                    // Ya no se intenta fullscreen aquí automáticamente
                     sendAlarmByUsername(targetUsername, messageToSend);
                 }).catch(e => {
                     console.error("Error starting audio context:", e);
                     showMessageBox("Error al iniciar el audio. Es posible que el sonido no funcione.");
-                    sendAlarmByUsername(targetUsername, messageToSend); // Continuar sin sonido si hay error
+                    sendAlarmByUsername(targetUsername, messageToSend);
                 });
             } else {
-                // Ya no se intenta fullscreen aquí automáticamente
                 sendAlarmByUsername(targetUsername, messageToSend);
             }
         });
 
-        // Agrega un escuchador de eventos al overlay para ocultarlo (ya no intenta activar pantalla completa)
+        // Agrega un escuchador de eventos al overlay para ocultarlo
         notificationOverlay.addEventListener('click', () => {
-            hideNotification(); // Siempre se ocultará al hacer clic
+            hideNotification();
         });
 
         // Opcional: Si quieres que se cierre también con la tecla ESC
@@ -576,8 +546,7 @@
             }
         });
 
-        // Event listener para el botón "Cambiar Nombre"
-        changeUsernameBtn.addEventListener('click', promptForUsername);
+        // Removed event listener for changeUsernameBtn (button removed)
 
 
         // Inicializar Firebase y el audio cuando la ventana se cargue completamente
