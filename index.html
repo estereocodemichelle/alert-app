@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alarma de Oficina Colaborativa</title>
+    <!-- Carga de Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Carga de Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, addDoc, updateDoc, getDocs, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Exponer Firebase a la ventana global para que el script principal pueda acceder
+        window.firebase = {
+            initializeApp,
+            auth: { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged },
+            firestore: { getFirestore, doc, setDoc, onSnapshot, collection, query, where, addDoc, updateDoc, getDocs, getDoc, serverTimestamp: () => new Date() }
+        };
+    </script>
+    <!-- Carga de Tone.js para generar sonido -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
+    <style>
+        /* Estilos personalizados para la fuente Inter */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Asegura que el overlay cubra toda la pantalla */
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999; /* Asegura que esté por encima de todo */
+            transition: background-color 0.3s ease-in-out, opacity 0.3s ease-in-out;
+        }
+        /* Animación de entrada para el mensaje */
+        @keyframes fadeInScale {
+            from {
+                opacity: 0;
+                transform: scale(0.8);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        .animate-fadeInScale {
+            animation: fadeInScale 0.3s ease-out forwards;
+        }
+        /* Estilo para el spinner de carga (aunque ya no se use para la generación, se mantiene por si acaso) */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Animación de flashing para el fondo */
+        @keyframes flashingBackground {
+            0% { background-color: rgba(239, 68, 68, 0.9); } /* Rojo 500 con 90% opacidad */
+            50% { background-color: rgba(251, 191, 36, 0.9); } /* Amarillo 400 con 90% opacidad */
+            100% { background-color: rgba(239, 68, 68, 0.9); }
+        }
+        .animate-flashing {
+            animation: flashingBackground 1s infinite alternate; /* Flashing cada segundo */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <!-- Custom Message Box -->
+    <div id="messageBox" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[10000] hidden">
+        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
+            <p id="messageBoxText" class="text-gray-800 text-lg mb-4"></p>
+            <button id="messageBoxCloseBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-5 rounded-full">
+                Aceptar
+            </button>
+        </div>
+    </div>
+
+    <!-- Username Input Modal -->
+    <div id="usernameModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-[10001] hidden">
+        <div class="bg-white p-8 rounded-xl shadow-2xl max-w-sm w-full text-center">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">¡Bienvenido!</h2>
+            <p class="text-gray-600 mb-6">Por favor, elige un nombre de usuario para identificarte en la aplicación:</p>
+            <input type="text" id="usernameInput"
+                   class="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 mb-6"
+                   placeholder="Tu nombre de usuario (ej: Juan, María)">
+            <button id="saveUsernameBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-full shadow-lg
+                       transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-indigo-300">
+                Guardar Nombre de Usuario
+            </button>
+            <p class="text-xs text-gray-500 mt-4 break-all" id="modalUserIdDisplay">Tu ID de usuario (solo para referencia): Cargando...</p>
+        </div>
+    </div>
+
+    <!-- Contenedor principal de la aplicación -->
+    <div class="flex flex-col items-center justify-center bg-white p-8 rounded-xl shadow-lg max-w-lg w-full">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">¡Llama su atención!</h1>
+        <p class="text-gray-600 mb-4 text-center">
+            Escribe el mensaje que quieres enviar a tus compañeros.
+        </p>
+
+        <!-- Display User ID and Username -->
+        <p id="currentUsernameDisplay" class="text-gray-700 text-sm font-semibold mb-2 break-all text-center">
+            Tu Nombre: Cargando...
+        </p>
+        <p id="currentUserIdDisplay" class="text-gray-500 text-xs mb-6 break-all text-center">
+            Tu ID: Cargando... (comparte tu nombre, no este ID)
+        </p>
+        <button id="changeUsernameBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-semibold py-1 px-3 rounded-full mb-6">
+            Cambiar Nombre
+        </button>
+
+
+        <!-- Campo de texto para el mensaje personalizado -->
+        <div class="w-full mb-6">
+            <label for="customMessageInput" class="block text-gray-700 text-sm font-bold mb-2">
+                Tu mensaje para la alarma:
+            </label>
+            <textarea id="customMessageInput"
+                      class="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      rows="3" placeholder="¡Necesito tu atención urgente!"></textarea>
+        </div>
+
+        <!-- Campo para el Nombre del compañero -->
+        <div class="w-full mb-6">
+            <label for="targetUsernameInput" class="block text-gray-700 text-sm font-bold mb-2">
+                Nombre del Compañero (a quién enviar la alarma):
+            </label>
+            <input type="text" id="targetUsernameInput"
+                   class="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500"
+                   placeholder="Escribe el nombre de tu compañero aquí">
+        </div>
+
+        <!-- Botón para activar la alarma con el mensaje actual -->
+        <button id="activateAlarmBtn"
+                class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-full shadow-lg
+                       transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300">
+            Activar Alarma
+        </button>
+    </div>
+
+    <!-- Overlay de notificación (inicialmente oculto) -->
+    <div id="notificationOverlay"
+         class="overlay hidden cursor-pointer">
+        <div class="text-center p-8 rounded-xl bg-white bg-opacity-20 backdrop-blur-sm">
+            <p class="text-white text-6xl md:text-8xl font-extrabold animate-fadeInScale">
+                ¡ATENCIÓN!
+            </p>
+            <p id="dynamicMessage" class="text-white text-3xl md:text-5xl font-semibold mt-4 animate-fadeInScale">
+                Necesito tu atención.
+            </p>
+            <p class="text-white text-xl md:text-2xl mt-6 animate-fadeInScale">
+                (Haz clic en cualquier parte para cerrar)
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Obtener referencias a los elementos del DOM
+        const activateAlarmBtn = document.getElementById('activateAlarmBtn');
+        const notificationOverlay = document.getElementById('notificationOverlay');
+        const dynamicMessage = document.getElementById('dynamicMessage');
+        const customMessageInput = document.getElementById('customMessageInput');
+        const targetUsernameInput = document.getElementById('targetUsernameInput');
+        const currentUsernameDisplay = document.getElementById('currentUsernameDisplay');
+        const currentUserIdDisplay = document.getElementById('currentUserIdDisplay');
+
+        const usernameModal = document.getElementById('usernameModal');
+        const usernameInput = document.getElementById('usernameInput');
+        const saveUsernameBtn = document.getElementById('saveUsernameBtn');
+        const modalUserIdDisplay = document.getElementById('modalUserIdDisplay');
+        const changeUsernameBtn = document.getElementById('changeUsernameBtn');
+
+
+        // Global Firebase variables (accesibles después de la inicialización)
+        let app;
+        let db;
+        let auth;
+        let currentUserId = null;
+        let currentUsername = null;
+        let currentAlarmDocId = null;
+
+        let timeoutId;
+
+        // Variables y funciones para el audio
+        let audioContextStarted = false;
+        let bellSynth;
+
+        function initializeAudio() {
+            // Solo inicializar Tone.js elements once
+            if (!bellSynth) {
+                bellSynth = new Tone.Synth({
+                    oscillator: {
+                        type: "sine"
+                    },
+                    envelope: {
+                        attack: 0.01,
+                        decay: 0.4,
+                        sustain: 0.1,
+                        release: 0.8
+                    }
+                }).toDestination();
+            }
+        }
+
+        function playBellSound() {
+            if (!bellSynth) {
+                initializeAudio();
+            }
+            // Tocar la primera nota inmediatamente
+            bellSynth.triggerAttackRelease("C5", "8n");
+
+            // Tocar la segunda nota después de un pequeño retraso
+            Tone.Transport.scheduleOnce(() => {
+                bellSynth.triggerAttackRelease("C5", "8n");
+            }, Tone.context.currentTime + 0.3);
+        }
+
+        // Función para mostrar un cuadro de mensaje personalizado (en lugar de alert)
+        function showMessageBox(message) {
+            const messageBox = document.getElementById('messageBox');
+            const messageBoxText = document.getElementById('messageBoxText');
+            const messageBoxCloseBtn = document.getElementById('messageBoxCloseBtn');
+
+            messageBoxText.textContent = message;
+            messageBox.classList.remove('hidden');
+
+            messageBoxCloseBtn.onclick = () => {
+                messageBox.classList.add('hidden');
+            };
+        }
+
+        // Función para solicitar el modo de pantalla completa (Mantenida pero ya no usada automáticamente)
+        function requestFullscreen(element) {
+            // Esta función se mantiene, pero no se llama automáticamente para evitar errores de permisos.
+            // Solo se activará si hay una interacción directa del usuario.
+            if (element.requestFullscreen) {
+                element.requestFullscreen();
+            } else if (element.mozRequestFullScreen) { /* Firefox */
+                element.mozRequestFullScreen();
+            } else if (element.webkitRequestFullscreen) { /* Chrome, Safari and Opera */
+                element.webkitRequestFullscreen();
+            } else if (element.msRequestFullscreen) { /* IE/Edge */
+                element.msRequestFullscreen();
+            }
+        }
+
+        // Función para salir del modo de pantalla completa
+        function exitFullscreen() {
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            } else if (document.mozCancelFullScreen) { /* Firefox */
+                document.mozCancelFullScreen();
+            } else if (document.webkitExitFullscreen) { /* Chrome, Safari and Opera */
+                document.webkitExitFullscreen();
+            } else if (document.msExitFullscreen) { /* IE/Edge */
+                document.msExitFullscreen();
+            }
+        }
+
+        // Función para mostrar la notificación
+        function showNotification(message) {
+            dynamicMessage.textContent = message;
+            notificationOverlay.classList.remove('hidden');
+            notificationOverlay.classList.add('animate-flashing');
+
+            // Reproducir sonido cuando la notificación se muestra
+            if (audioContextStarted) {
+                playBellSound();
+            } else {
+                console.warn("AudioContext no iniciado. El sonido podría no reproducirse automáticamente.");
+            }
+
+            clearTimeout(timeoutId);
+            // La duración de la alarma se ha cambiado a 10 segundos (10000 ms)
+            timeoutId = setTimeout(() => {
+                hideNotification();
+                if (currentAlarmDocId) {
+                    dismissAlarmInFirestore(currentAlarmDocId);
+                    currentAlarmDocId = null;
+                }
+            }, 10000); // 10000 milisegundos = 10 segundos
+        }
+
+        // Función para ocultar la notificación
+        function hideNotification() {
+            // Esta función se llama al hacer clic, al presionar ESC o al finalizar el temporizador
+            if (document.fullscreenElement === notificationOverlay ||
+                document.mozFullScreenElement === notificationOverlay ||
+                document.webkitFullscreenElement === notificationOverlay ||
+                document.msFullscreenElement === notificationOverlay) {
+                exitFullscreen(); // Asegura salir de fullscreen si estaba activo
+            }
+
+            notificationOverlay.classList.add('hidden');
+            notificationOverlay.classList.remove('animate-flashing');
+            clearTimeout(timeoutId); // Limpiar el temporizador para evitar que se oculte dos veces
+
+            // Desactivar la alarma en Firestore si aún no se ha hecho
+            if (currentAlarmDocId) {
+                dismissAlarmInFirestore(currentAlarmDocId);
+                currentAlarmDocId = null;
+            }
+        }
+
+        // --- Funciones para nombres de usuario ---
+
+        // Muestra el modal para pedir el nombre de usuario
+        function promptForUsername() {
+            usernameModal.classList.remove('hidden');
+            if (currentUserId) {
+                modalUserIdDisplay.textContent = `Tu ID de usuario (solo para referencia): ${currentUserId}`;
+            }
+        }
+
+        // Guarda el nombre de usuario en Firestore
+        async function saveUsername() {
+            const username = usernameInput.value.trim();
+            if (!username) {
+                showMessageBox("Por favor, introduce un nombre de usuario.");
+                return;
+            }
+
+            if (!db || !currentUserId) {
+                showMessageBox("Error: La aplicación no está lista. Por favor, intenta de nuevo.");
+                return;
+            }
+
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const userProfileRef = window.firebase.firestore.doc(db, `artifacts/${appId}/public/data/userProfiles`, currentUserId);
+
+            try {
+                // Verificar si el nombre de usuario ya existe
+                const usernameCheckQuery = window.firebase.firestore.query(
+                    window.firebase.firestore.collection(db, `artifacts/${appId}/public/data/userProfiles`),
+                    window.firebase.firestore.where("username", "==", username)
+                );
+                const querySnapshot = await window.firebase.firestore.getDocs(usernameCheckQuery); // Aquí estaba el error en el nombre de la variable 'queryCheckQuery'
+
+                let usernameExists = false;
+                querySnapshot.forEach(doc => {
+                    if (doc.id !== currentUserId) {
+                        usernameExists = true;
+                    }
+                });
+
+                if (usernameExists) {
+                    showMessageBox("Este nombre de usuario ya está en uso. Por favor, elige otro.");
+                    return;
+                }
+
+                await window.firebase.firestore.setDoc(userProfileRef, {
+                    username: username,
+                    userId: currentUserId,
+                    createdAt: new Date()
+                }, { merge: true });
+
+                currentUsername = username;
+                currentUsernameDisplay.textContent = `Tu Nombre: ${currentUsername}`;
+                usernameModal.classList.add('hidden');
+                showMessageBox(`Tu nombre de usuario "${username}" ha sido guardado.`);
+                console.log("Nombre de usuario guardado:", username);
+
+                // Intentar iniciar el contexto de audio después de la interacción del usuario
+                if (!audioContextStarted) {
+                    Tone.start().then(() => {
+                        audioContextStarted = true;
+                        console.log("AudioContext started (from saveUsernameBtn)");
+                    }).catch(e => console.error("Error starting audio context:", e));
+                }
+
+            } catch (error) {
+                console.error("Error al guardar el nombre de usuario:", error);
+                showMessageBox("Error al guardar el nombre de usuario. Inténtalo de nuevo.");
+            }
+        }
+
+        // Inicialización de Firebase y autenticación
+        const initializeFirebase = async () => {
+            try {
+                if (typeof window.firebase === 'undefined') {
+                    console.error("Firebase SDK no cargado correctamente.");
+                    showMessageBox("Error: Firebase no está disponible. Recarga la página.");
+                    return;
+                }
+
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+
+                app = window.firebase.initializeApp(firebaseConfig);
+                db = window.firebase.firestore.getFirestore(app);
+                auth = window.firebase.auth.getAuth(app);
+
+                window.firebase.auth.onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        currentUserId = user.uid;
+                        currentUserIdDisplay.textContent = `Tu ID: ${currentUserId}`;
+                        modalUserIdDisplay.textContent = `Tu ID de usuario (solo para referencia): ${currentUserId}`;
+
+                        const userProfileRef = window.firebase.firestore.doc(db, `artifacts/${appId}/public/data/userProfiles`, currentUserId);
+                        const docSnap = await window.firebase.firestore.getDoc(userProfileRef);
+
+                        if (docSnap.exists() && docSnap.data().username) {
+                            currentUsername = docSnap.data().username;
+                            currentUsernameDisplay.textContent = `Tu Nombre: ${currentUsername}`;
+                            console.log("Autenticado como:", currentUserId, "Nombre:", currentUsername);
+                        } else {
+                            currentUsernameDisplay.textContent = `Tu Nombre: (No definido)`;
+                            promptForUsername();
+                        }
+                        setupAlarmListener(currentUserId, appId);
+                    } else {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await window.firebase.auth.signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await window.firebase.auth.signInAnonymously(auth);
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Error al inicializar Firebase:", error);
+                showMessageBox("Error al inicializar la aplicación. Por favor, recarga la página.");
+            }
+        };
+
+        // Configurar el escuchador en tiempo real para las alarmas
+        const setupAlarmListener = (userId, appId) => {
+            if (!db) {
+                console.error("Firestore no está inicializado.");
+                return;
+            }
+
+            const alarmsCollectionRef = window.firebase.firestore.collection(db, `artifacts/${appId}/public/data/userAlarms`);
+            const q = window.firebase.firestore.query(
+                alarmsCollectionRef,
+                window.firebase.firestore.where("targetUserId", "==", userId),
+                window.firebase.firestore.where("active", "==", true)
+            );
+
+            window.firebase.firestore.onSnapshot(q, (snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    const alarmData = change.doc.data();
+                    if (change.type === "added" || (change.type === "modified" && alarmData.active)) {
+                        console.log("Alarma recibida:", alarmData);
+                        currentAlarmDocId = change.doc.id;
+                        showNotification(alarmData.message);
+                    } else if (change.type === "removed" || (change.type === "modified" && !alarmData.active)) {
+                        console.log("Alarma eliminada/desactivada:", alarmData);
+                        if (currentAlarmDocId === change.doc.id) {
+                            hideNotification();
+                            currentAlarmDocId = null;
+                        }
+                    }
+                });
+            }, (error) => {
+                console.error("Error al escuchar alarmas:", error);
+                showMessageBox("Error al recibir alarmas en tiempo real.");
+            });
+        };
+
+        // Función para enviar una alarma a través de Firestore
+        async function sendAlarmByUsername(targetUsername, message) {
+            if (!db || !currentUserId || !currentUsername) {
+                showMessageBox("La aplicación no está lista. Por favor, espera a que se inicialice y configura tu nombre de usuario.");
+                return;
+            }
+
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const userProfilesCollectionRef = window.firebase.firestore.collection(db, `artifacts/${appId}/public/data/userProfiles`);
+            const alarmsCollectionRef = window.firebase.firestore.collection(db, `artifacts/${appId}/public/data/userAlarms`);
+
+            try {
+                const q = window.firebase.firestore.query(
+                    userProfilesCollectionRef,
+                    window.firebase.firestore.where("username", "==", targetUsername)
+                );
+                const querySnapshot = await window.firebase.firestore.getDocs(q);
+
+                let targetUserId = null;
+                if (!querySnapshot.empty) {
+                    targetUserId = querySnapshot.docs[0].id;
+                }
+
+                if (!targetUserId) {
+                    showMessageBox(`No se encontró ningún usuario con el nombre "${targetUsername}". Asegúrate de que esté bien escrito y de que el usuario lo haya configurado.`);
+                    return;
+                }
+
+                await window.firebase.firestore.addDoc(alarmsCollectionRef, {
+                    targetUserId: targetUserId,
+                    message: message,
+                    senderUserId: currentUserId,
+                    senderUsername: currentUsername,
+                    timestamp: new Date(),
+                    active: true
+                });
+                console.log("Alarma enviada a Firestore.");
+                showMessageBox(`Alarma enviada a "${targetUsername}".`);
+            }
+            catch (error) {
+                console.error("Error al enviar alarma a Firestore:", error);
+                showMessageBox("Error al enviar la alarma. Por favor, inténtalo de nuevo.");
+            }
+        }
+
+        // Función para desactivar una alarma en Firestore
+        async function dismissAlarmInFirestore(docId) {
+            if (!db || !docId) return;
+
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const alarmDocRef = window.firebase.firestore.doc(db, `artifacts/${appId}/public/data/userAlarms`, docId);
+            try {
+                await window.firebase.firestore.updateDoc(alarmDocRef, { active: false });
+                console.log("Alarma desactivada en Firestore:", docId);
+            } catch (error) {
+                console.error("Error al desactivar alarma en Firestore:", error);
+                showMessageBox("Error al desactivar la alarma en la base de datos.");
+            }
+        }
+
+        // Event listener para el botón para guardar el nombre de usuario
+        saveUsernameBtn.addEventListener('click', saveUsername);
+
+        // Event listener para el botón para activar la alarma
+        activateAlarmBtn.addEventListener('click', () => {
+            const targetUsername = targetUsernameInput.value.trim();
+            if (!targetUsername) {
+                showMessageBox("Por favor, introduce el nombre del compañero al que quieres enviar la alarma.");
+                return;
+            }
+
+            const messageToSend = customMessageInput.value.trim();
+            if (!messageToSend) {
+                showMessageBox("Por favor, escribe un mensaje para la alarma.");
+                return;
+            }
+
+            // Intentar iniciar el contexto de audio con la primera interacción del usuario aquí también
+            if (!audioContextStarted) {
+                Tone.start().then(() => {
+                    audioContextStarted = true;
+                    console.log("AudioContext started (from activateAlarmBtn)");
+                    // Ya no se intenta fullscreen aquí automáticamente
+                    sendAlarmByUsername(targetUsername, messageToSend);
+                }).catch(e => {
+                    console.error("Error starting audio context:", e);
+                    showMessageBox("Error al iniciar el audio. Es posible que el sonido no funcione.");
+                    sendAlarmByUsername(targetUsername, messageToSend); // Continuar sin sonido si hay error
+                });
+            } else {
+                // Ya no se intenta fullscreen aquí automáticamente
+                sendAlarmByUsername(targetUsername, messageToSend);
+            }
+        });
+
+        // Agrega un escuchador de eventos al overlay para ocultarlo (ya no intenta activar pantalla completa)
+        notificationOverlay.addEventListener('click', () => {
+            hideNotification(); // Siempre se ocultará al hacer clic
+        });
+
+        // Opcional: Si quieres que se cierre también con la tecla ESC
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && !notificationOverlay.classList.contains('hidden')) {
+                hideNotification();
+            }
+        });
+
+        // Event listener para el botón "Cambiar Nombre"
+        changeUsernameBtn.addEventListener('click', promptForUsername);
+
+
+        // Inicializar Firebase y el audio cuando la ventana se cargue completamente
+        window.onload = initializeFirebase;
+    </script>
+</body>
+</html>
